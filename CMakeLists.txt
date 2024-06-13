@@ -15,7 +15,7 @@ link_libraries(glfw)
 
 include_directories(
 "${GLFW_SOURCE_DIR}/deps"
-"${GLFW_SOURCE_DIR}/OwnProjects/Project_03/"
+"${GLFW_SOURCE_DIR}/OwnProjects/Project_13/"
 )
 
 if (MATH_LIBRARY)

@@ -2555,6 +2555,8 @@ bool LoadObj(attrib_t *attrib, std::vector<shape_t> *shapes,
   attrib->colors.clear();
   shapes->clear();
 
+  std::cout << "Loading Model...\n";
+
   std::stringstream errss;
 
   std::ifstream ifs(filename);

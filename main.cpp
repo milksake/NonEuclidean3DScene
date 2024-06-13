@@ -1,3 +1,5 @@
+#define _GLIBCXX_DEBUG 1
+
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
 #define GLFW_INCLUDE_NONE
@@ -19,9 +21,10 @@
 
 #define WINDOW_WIDTH 800.0f
 #define WINDOW_HEIGHT 600.0f
-#define CAMERA_STEP 2.0f
-#define GLOBAL_SCALE 0.01f
+#define CAMERA_STEP 5.0f
+#define GLOBAL_SCALE 0.005f
 
+const int PI = 3.1416;
 bool mode = false; // Geometry
 
 // Shaders
@@ -61,9 +64,7 @@ const char *vertexShaderSource2 = "#version 330 core\n"
     "layout (location = 0) in vec3 aPos;\n"
     "layout (location = 1) in vec2 aTexCoord;\n"
 
-    "uniform mat4 translationMat;\n"
-    "uniform mat4 rotationMat;\n"
-    "uniform mat4 scaleMat;\n"
+    "uniform mat4 model;\n"
     "uniform mat4 view;\n"
     "uniform mat4 projection;\n"
 
@@ -85,9 +86,8 @@ const char *vertexShaderSource2 = "#version 330 core\n"
     "void main()\n"
     "{\n"
     "	TexCoord = aTexCoord;\n"
-    "	vec4 newPos = scaleMat * vec4(aPos, 1.0f);\n"
-    "   gl_Position = projection * view * translationMat * rotationMat * (anti * port(newPos.xyz));\n"
-    "   //gl_Position = vec4(0.0f, 0.0f, 0.0f, 1.0f);\n"
+    "	vec4 newPos = model * vec4(aPos, 1.0f);\n"
+    "   gl_Position = projection * view * (anti * port(newPos.xyz));\n"
     "}\0";
 
 const char *fragmentShaderSource2 = "#version 330 core\n"
@@ -135,41 +135,98 @@ glm::mat4x4 NonEuclideanTranslate(const glm::vec4& to)
     return glm::transpose(out);
 }
 
+std::string out;
 class Model
 {
-    std::vector<float> vertices;
-    std::vector<float> texcoords;
+    std::vector<float> verticesData;
     std::vector<unsigned int> indices;
     GLuint vao, vbo, ebo;
     GLuint textureID;
 
-    bool loadModel(const std::string& path, const std::string& texturePath)
+    bool loadModel(const std::string& objectPath, const std::string& texturePath)
     {
         tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
         std::vector<tinyobj::material_t> materials;
         std::string warn, err;
 
-        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str()))
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, objectPath.c_str(), out.c_str()))
         {
             std::cerr << "Error al cargar/parsear el archivo .obj: " << warn << err << std::endl;
             return false;
         }
 
-        for (const auto& shape : shapes)
-        {
-            for (const auto& index : shape.mesh.indices)
-            {
-                vertices.push_back(attrib.vertices[3 * index.vertex_index + 0]);
-                vertices.push_back(attrib.vertices[3 * index.vertex_index + 1]);
-                vertices.push_back(attrib.vertices[3 * index.vertex_index + 2]);
-                if (!attrib.texcoords.empty()) {
-                    texcoords.push_back(attrib.texcoords[2 * index.texcoord_index + 0]);
-                    texcoords.push_back(attrib.texcoords[2 * index.texcoord_index + 1]);
+        std::cout << "Warning: " << warn << '\n';
+        std::cout << "Number of materials: " << materials.size() << '\n';
+
+        // Loop over shapes
+        for (size_t s = 0; s < shapes.size(); s++) {
+            // Loop over faces(polygon)
+            size_t index_offset = 0;
+            for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+                size_t fv = size_t(shapes[s].mesh.num_face_vertices[f]);
+
+                // Loop over vertices in the face.
+                for (size_t v = 0; v < fv; v++) {
+                    // access to vertex
+                    tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+
+                    tinyobj::real_t vx = attrib.vertices[3*size_t(idx.vertex_index)+0];
+                    tinyobj::real_t vy = attrib.vertices[3*size_t(idx.vertex_index)+1];
+                    tinyobj::real_t vz = attrib.vertices[3*size_t(idx.vertex_index)+2];
+
+                    verticesData.push_back(vx);
+                    verticesData.push_back(vy);
+                    verticesData.push_back(vz);
+
+                    // Check if `normal_index` is zero or positive. negative = no normal data
+                    if (idx.normal_index >= 0) {
+                        tinyobj::real_t nx = attrib.normals[3*size_t(idx.normal_index)+0];
+                        tinyobj::real_t ny = attrib.normals[3*size_t(idx.normal_index)+1];
+                        tinyobj::real_t nz = attrib.normals[3*size_t(idx.normal_index)+2];
+                    }
+
+                    // Check if `texcoord_index` is zero or positive. negative = no texcoord data
+                    if (true || idx.texcoord_index >= 0) {
+                        tinyobj::real_t tx = attrib.texcoords[2*size_t(idx.texcoord_index)+0];
+                        tinyobj::real_t ty = attrib.texcoords[2*size_t(idx.texcoord_index)+1];
+
+                        verticesData.push_back(tx);
+                        verticesData.push_back(ty);
+                    }
+                    // Optional: vertex colors
+                    // tinyobj::real_t red   = attrib.colors[3*size_t(idx.vertex_index)+0];
+                    // tinyobj::real_t green = attrib.colors[3*size_t(idx.vertex_index)+1];
+                    // tinyobj::real_t blue  = attrib.colors[3*size_t(idx.vertex_index)+2];
+
+                    indices.push_back(indices.size());
+
+                    // if (f == 0)
+                    // {
+                    //     std::cout << '\t' << idx.vertex_index << ' ' << idx.texcoord_index << ' ' << idx.normal_index << '\n';
+                    // }
                 }
-                indices.push_back(indices.size());
+                index_offset += fv;
+
+                // per-face material
+                // materials[shapes[s].mesh.material_ids[f]];
             }
         }
+
+        // for (const auto& shape : shapes)
+        // {
+        //     for (const auto& index : shape.mesh.indices)
+        //     {
+        //         vertices.push_back(attrib.vertices[3 * index.vertex_index + 0]);
+        //         vertices.push_back(attrib.vertices[3 * index.vertex_index + 1]);
+        //         vertices.push_back(attrib.vertices[3 * index.vertex_index + 2]);
+        //         if (!attrib.texcoords.empty()) {
+        //             texcoords.push_back(attrib.texcoords[2 * index.texcoord_index + 0]);
+        //             texcoords.push_back(attrib.texcoords[2 * index.texcoord_index + 1]);
+        //         }
+        //         indices.push_back(indices.size());
+        //     }
+        // }
 
         setUpVao();
 
@@ -180,8 +237,8 @@ class Model
 
     void setUpVao()
     {
-        std::cout << "Vertices : " << vertices.size() << std::endl;
-        std::cout << "Indices: " << indices.size() << std::endl;
+        // std::cout << "Vertices : " << vertices.size() << std::endl;
+        // std::cout << "Indices: " << indices.size() << std::endl;
 
         glGenVertexArrays(1, &vao);
         glGenBuffers(1, &vbo);
@@ -190,45 +247,50 @@ class Model
         glBindVertexArray(vao);
 
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, verticesData.size() * sizeof(float), verticesData.data(), GL_STATIC_DRAW);
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
 
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
 
-        if (!texcoords.empty())
+        // std::cout << '\t' << verticesData[verticesData.size()-5] << ' ' << verticesData[verticesData.size()-4] << ' ' << verticesData[verticesData.size()-3] << ' ' << verticesData[verticesData.size()-2] << ' ' << verticesData[verticesData.size()-1] << '\n';
+
+        if (true /*|| !texcoords.empty()*/)
         {
-            GLuint texVBO;
-            glGenBuffers(1, &texVBO);
-            glBindBuffer(GL_ARRAY_BUFFER, texVBO);
-            glBufferData(GL_ARRAY_BUFFER, texcoords.size() * sizeof(float), texcoords.data(), GL_STATIC_DRAW);
-            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+            // GLuint texVBO;
+            // glGenBuffers(1, &texVBO);
+            // glBindBuffer(GL_ARRAY_BUFFER, texVBO);
+            // glBufferData(GL_ARRAY_BUFFER, texcoords.size() * sizeof(float), texcoords.data(), GL_STATIC_DRAW);
+            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
             glEnableVertexAttribArray(1);
         }
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
+
+        // vertices.clear();
+        // texcoords.clear();
+        // indices.clear();
     }
 
 public:
-    Model(const std::vector<float>& _vertices, const std::vector<unsigned int>& _indices, const std::vector<float>& _texCoord = {}, GLuint _textureID = -1) :
-        vertices(_vertices), texcoords(_texCoord), indices(_indices), textureID(_textureID)
-    {
-        setUpVao();
-    }
+    // Model(const std::vector<float>& _vertices, const std::vector<unsigned int>& _indices, const std::vector<float>& _texCoord = {}, GLuint _textureID = -1) :
+    //     vertices(_vertices), texcoords(_texCoord), indices(_indices), textureID(_textureID)
+    // {
+    //     setUpVao();
+    // }
 
-    Model(const std::string& path, const std::string& texturePath)
+    Model(const std::string& objPath, const std::string& texturePath)
     {
-        bool build = loadModel(path, texturePath);
+        bool build = loadModel(objPath, texturePath);
         if (!build)
             exit(1);
     }
 
     void draw()
     {
-        glUseProgram(programs[mode]);
         glBindTexture(GL_TEXTURE_2D, textureID);
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
@@ -247,8 +309,8 @@ public:
 //         -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,
 //     };
 //     std::vector<unsigned int> indices = {
-//         0, 1, 3,  // Cara frontal
-//         1, 2, 3,  // Cara frontal
+//         0, 1, 3,
+//         1, 2, 3,
 //     };
 
 //     return Model(vertices, indices);
@@ -257,31 +319,19 @@ public:
 class Object
 {
     glm::vec4 position;
-    glm::mat4x4 transformationEucl;
-    glm::mat4x4 rotationEucl;
-    glm::mat4x4 scaleEucl;
-    glm::mat4x4 translationNonEucl;
+    glm::mat4x4 transformation;
     Model* model;
 
 public:
-    Object(Model* _model, const glm::vec4& _translation, const glm::mat4x4& _rotation, const glm::mat4x4& _scale) :
-        rotationEucl(_rotation), scaleEucl(_scale), model(_model)
+    Object(Model* _model, const glm::mat4x4& _transformation) :
+        transformation(_transformation), model(_model)
     {
-        translationNonEucl = NonEuclideanTranslate(_translation);
-        transformationEucl = glm::translate(glm::mat4x4(1.0f), glm::vec3(_translation)) * _rotation * _scale;
-        position = transformationEucl * glm::vec4(0.0f);
+        position = transformation * glm::vec4(0.0f);
     }
 
     void draw()
     {
-        if (mode == 0)
-            glUniformMatrix4fv(glGetUniformLocation(programs[mode], "model"), 1, GL_FALSE, glm::value_ptr(transformationEucl));
-        else
-        {
-            glUniformMatrix4fv(glGetUniformLocation(programs[mode], "translationMat"), 1, GL_FALSE, glm::value_ptr(translationNonEucl));
-            glUniformMatrix4fv(glGetUniformLocation(programs[mode], "scaleMat"), 1, GL_FALSE, glm::value_ptr(scaleEucl));
-            glUniformMatrix4fv(glGetUniformLocation(programs[mode], "rotationMat"), 1, GL_FALSE, glm::value_ptr(rotationEucl));
-        }
+        glUniformMatrix4fv(glGetUniformLocation(programs[mode], "model"), 1, GL_FALSE, glm::value_ptr(transformation));
         model->draw();
     }
 };
@@ -319,7 +369,7 @@ class Camera
             glm::vec4 jc = glm::vec4(tmp[0][1], tmp[1][1], tmp[2][1], 0.0f);
             glm::vec4 kc = glm::vec4(tmp[0][2], tmp[1][2], tmp[2][2], 0.0f);
             
-            glm::vec4 geomEye = portEucToCurved(glm::vec4(position, 1.0f) * GLOBAL_SCALE);
+            glm::vec4 geomEye = portEucToCurved(glm::vec4(position * GLOBAL_SCALE, 1.0f));
 
             glm::mat4x4 eyeTranslate = NonEuclideanTranslate(geomEye);
             // eyeTranslate[3][3] = geomEye[3];
@@ -333,18 +383,18 @@ class Camera
             viewMatrix[2][0] = icp[2]; viewMatrix[2][1] = jcp[2]; viewMatrix[2][2] = kcp[2]; viewMatrix[2][3] = geomEye[2];
             viewMatrix[3][0] = icp[3]; viewMatrix[3][1] = jcp[3]; viewMatrix[3][2] = kcp[3]; viewMatrix[3][3] = /*geomEye[3]*/ 1.0f;
         
-            viewMatrix =  glm::transpose(viewMatrix);
+            // viewMatrix =  glm::transpose(viewMatrix);
         }
 
-        std::cout << "-----Begin View Matrix\n";
-		printM(viewMatrix);
-		std::cout << "-----End View Matrix\n";
-        std::cout << "-----Begin View Raw\n";
-        auto rawww = glm::value_ptr(viewMatrix);
-        for (int i = 0; i < 16; i++)
-            std::cout << rawww[i] << ' ';
-        std::cout << '\n';
-		std::cout << "-----End View Raw\n";
+        // std::cout << "-----Begin View Matrix\n";
+		// printM(viewMatrix);
+		// std::cout << "-----End View Matrix\n";
+        // std::cout << "-----Begin View Raw\n";
+        // auto rawww = glm::value_ptr(viewMatrix);
+        // for (int i = 0; i < 16; i++)
+        //     std::cout << rawww[i] << ' ';
+        // std::cout << '\n';
+		// std::cout << "-----End View Raw\n";
 
         glUniformMatrix4fv(glGetUniformLocation(programs[mode], "view"), 1, GL_FALSE, glm::value_ptr(viewMatrix));
     }
@@ -376,18 +426,18 @@ class Camera
             projMatrix[2][3] = -1;
             projMatrix[3][2] = -fp;
             
-            projMatrix = glm::transpose(projMatrix);
+            // projMatrix = glm::transpose(projMatrix);
         }
 
-        std::cout << "-----Begin Projection Matrix\n";
-		printM(projMatrix);
-		std::cout << "-----End Projection Matrix\n";
-		std::cout << "-----Begin Projection Raw\n";
-        auto rawww = glm::value_ptr(projMatrix);
-        for (int i = 0; i < 16; i++)
-            std::cout << rawww[i] << ' ';
-        std::cout << '\n';
-		std::cout << "-----End Projection Raw\n";
+        // std::cout << "-----Begin Projection Matrix\n";
+		// printM(projMatrix);
+		// std::cout << "-----End Projection Matrix\n";
+		// std::cout << "-----Begin Projection Raw\n";
+        // auto rawww = glm::value_ptr(projMatrix);
+        // for (int i = 0; i < 16; i++)
+        //     std::cout << rawww[i] << ' ';
+        // std::cout << '\n';
+		// std::cout << "-----End Projection Raw\n";
         
         glUniformMatrix4fv(glGetUniformLocation(programs[mode], "projection"), 1, GL_FALSE, glm::value_ptr(projMatrix));
     }
@@ -462,6 +512,9 @@ int main()
         return -1;
     }
 
+    // Flipping the image
+    stbi_set_flip_vertically_on_load(true);
+
     // Compilar shaders
     GLuint vertexShader = loadShader(GL_VERTEX_SHADER, vertexShaderSource);
     GLuint fragmentShader = loadShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
@@ -501,8 +554,6 @@ int main()
     glUniform1f(glGetUniformLocation(programs[1], "scale"), GLOBAL_SCALE);
     glUniform1f(glGetUniformLocation(programs[1], "curv"), 1.0f);
 
-    std::cout << "Programs: " << programs[0] << ' ' << programs[1] << '\n';
-
     // Relative Path
 	std::filesystem::path p = std::filesystem::current_path();
 	int levels_path = 1;
@@ -518,89 +569,23 @@ int main()
 
 	std::stringstream ss;
 	ss << std::quoted(p_current.string());
-	std::string out;
 	ss >> std::quoted(out);
 
-	std::cout << "\nCurrent path: " << out << "\n";
+    out += "\\glfw-master\\OwnProjects\\Project_13\\Models\\";
+	std::cout << "Assets path: " << out << "\n";
 
     // Cargar modelos
     std::vector<Model> models;
-    models.push_back(Model(out + "\\glfw-master\\OwnProjects\\Project_13\\Models\\Lowpoly_Tree.obj", out + "\\glfw-master\\OwnProjects\\Project_13\\Models\\wall.jpg"));
-    models.push_back(Model(out + "\\glfw-master\\OwnProjects\\Project_13\\Models\\Hogar.obj", out + "\\glfw-master\\OwnProjects\\Project_13\\Models\\wall.jpg"));
-    models.push_back(Model(out + "\\glfw-master\\OwnProjects\\Project_13\\Models\\10438_Circular_Grass_Patch_v1_iterations-2.obj", out + "\\glfw-master\\OwnProjects\\Project_13\\Models\\10438_Circular_Grass_Patch_v1_Diffuse.jpg"));
-    models.push_back(Model(out + "\\glfw-master\\OwnProjects\\Project_13\\Models\\Lowpoly_Fox.obj", out + "\\glfw-master\\OwnProjects\\Project_13\\Models\\wall.jpg"));
+    models.push_back(Model(out + "stylized_house_OBJ.obj", out + "house_texture.png"));
 
     // Crear objetos
-    std::vector<Object> objects = {
-        Object(&models[0], // Tree1
-            glm::vec4(-100.0f, 0.0f, 0.0f, 1.0f),
-            glm::mat4x4(1.0f),
-            glm::scale(glm::mat4x4(1.0f), glm::vec3(0.9f))
-        ),
-        // Object(&models[0], // Tree2
-        //     glm::scale(
-        //         glm::translate(
-        //             glm::mat4x4(1.0f),
-        //             glm::vec3(50.0f, 0.0f, 0.0f)
-        //         ),
-        //         glm::vec3(0.9f)
-        //     )
-        // ),
-        // Object(&models[0], // Tree3
-        //     glm::scale(
-        //         glm::translate(
-        //             glm::mat4x4(1.0f),
-        //             glm::vec3(50.0f, 0.0f, 100.0f)
-        //         ),
-        //         glm::vec3(1.3f)
-        //     )
-        // ),
-        // Object(&models[0], // Tree4
-        //     glm::scale(
-        //         glm::translate(
-        //             glm::mat4x4(1.0f),
-        //             glm::vec3(-50.0f, 0.0f, -100.0f)
-        //         ),
-        //         glm::vec3(0.9f)
-        //     )
-        // ),
-        // Object(&models[0], // Tree5
-        //     glm::scale(
-        //         glm::translate(
-        //             glm::mat4x4(1.0f),
-        //             glm::vec3(-50.0f, 0.0f, 150.0f)
-        //         ),
-        //         glm::vec3(1.0f)
-        //     )
-        // ),
-        Object(&models[1], // House
-            glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
-            glm::mat4x4(1.0f),
-            glm::scale(
-                glm::mat4x4(1.0f),
-                glm::vec3(1.0f)
-            )
+    std::vector<Object> objects;
+
+    objects.push_back(
+        Object(&models[0], // House
+            glm::mat4x4(1.0f)
         )
-        // Object(&models[2], // Grass
-        //     glm::rotate(
-        //         glm::translate(
-        //             glm::mat4x4(1.0f),
-        //             glm::vec3(0.0f, -10.0f, 0.0f)
-        //         ),
-        //         glm::radians(-90.0f),
-        //         glm::vec3(1.0f, 0.0f, 0.0f)
-        //     )
-        // ),
-        // Object(&models[3], // Fox
-        //     glm::scale(
-        //         glm::translate(
-        //             glm::mat4x4(1.0f),
-        //             glm::vec3(0.0f, 0.0f, 50.0f)
-        //         ),
-        //         glm::vec3(0.2f)
-        //     )
-        // )
-    };
+    );
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -609,8 +594,8 @@ int main()
     glUseProgram(programs[mode]);
 
     camera = new Camera(
-        glm::vec3(0.0f, 10.0f, 10.0f),
-        glm::vec3(0.0f, 10.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 5.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
         glm::radians(45.0f), WINDOW_WIDTH / WINDOW_HEIGHT, 0.1f, 1000.0f);
 
     // Bucle de renderizado
@@ -658,6 +643,10 @@ void processKeyInput(GLFWwindow* window, int key, int scancode, int action, int 
         camera->move(CAMERA_STEP * glm::normalize(camera->getCenter() - camera->getPosition()));
     if (action == GLFW_PRESS && key == GLFW_KEY_DOWN)
         camera->move(-1.0f * CAMERA_STEP * glm::normalize(camera->getCenter() - camera->getPosition()));
+    if (action == GLFW_PRESS && key == GLFW_KEY_W)
+        camera->move(10.0f * CAMERA_STEP * glm::vec3(0.0f, 0.1f, 0.0f));
+    if (action == GLFW_PRESS && key == GLFW_KEY_S)
+        camera->move(10.0f * CAMERA_STEP * glm::vec3(0.0f, -0.1f, 0.0f));
     
     if (action == GLFW_PRESS && key == GLFW_KEY_A)
         camera->turn(-0.5f * CAMERA_STEP * glm::normalize(glm::cross(camera->getCenter() - camera->getPosition(), glm::vec3(0.0f, 1.0f, 0.0f))));
@@ -718,6 +707,7 @@ GLuint loadTexture(const std::string& path)
     } else {
         std::cerr << "Error al cargar la textura: " << path << std::endl;
         stbi_image_free(data);
+        exit(1);
     }
 
     return textureID;
